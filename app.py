@@ -4,6 +4,7 @@ import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
 from datetime import date
+from io import BytesIO
 
 st.set_page_config(
     page_title="Superhar RH — Dashboard R&S",
@@ -65,9 +66,8 @@ with st.expander("📂  Carregar base de dados (.xlsx)", expanded=True):
     st.caption("Os dados ficam apenas na sua sessão e são apagados ao fechar o navegador.")
 
 # ── LEITURA ──────────────────────────────────
-@st.cache_data(show_spinner="Carregando base de dados…")
 def carregar(file_bytes):
-    df = pd.read_excel(file_bytes, sheet_name="Base Relatorio Executivo", header=1)
+    df = pd.read_excel(BytesIO(file_bytes), sheet_name="Base Relatorio Executivo", header=1)
     df = df.loc[:, ~df.columns.str.startswith('Unnamed')]
 
     # Normalizar datas
@@ -125,7 +125,8 @@ def carregar(file_bytes):
     return df
 
 if uploaded:
-    df_raw = carregar(uploaded.read())
+    with st.spinner("Carregando base de dados…"):
+        df_raw = carregar(uploaded.getvalue())
     st.success(f"✅  {len(df_raw)} registros | {df_raw['COD.VAGA SUPERHAR'].nunique()} vagas | carregados com sucesso")
 else:
     st.info("⬆️  Carregue o arquivo Excel para visualizar os dados reais.")
