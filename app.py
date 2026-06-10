@@ -5,14 +5,14 @@ import plotly.express as px
 import plotly.graph_objects as go
 from datetime import date
 from io import BytesIO
-
+ 
 st.set_page_config(
     page_title="Superhar RH — Dashboard R&S",
     page_icon="🔵",
     layout="wide",
     initial_sidebar_state="collapsed"
 )
-
+ 
 st.markdown("""
 <style>
   .main { background: #F4F5F7; }
@@ -33,7 +33,7 @@ st.markdown("""
   .stDataFrame { border-radius: 8px; overflow: hidden; }
 </style>
 """, unsafe_allow_html=True)
-
+ 
 # ── PALETA ───────────────────────────────────
 AZUL    = "#185FA5"
 AZUL2   = "#378ADD"
@@ -45,7 +45,7 @@ CORAL   = "#D85A30"
 ROSA    = "#D4537E"
 CINZA   = "#B4B2A9"
 PAL     = [AZUL, VERDE, AMBER, ROXO, CORAL, ROSA, CINZA, AZUL2]
-
+ 
 # ── HEADER ───────────────────────────────────
 st.markdown("""
 <div class="header-bar">
@@ -56,7 +56,7 @@ st.markdown("""
   <div style="font-size:12px;opacity:0.85">Dashboard de Recrutamento &amp; Seleção</div>
 </div>
 """, unsafe_allow_html=True)
-
+ 
 # ── UPLOAD ───────────────────────────────────
 with st.expander("📂  Carregar base de dados (.xlsx)", expanded=True):
     uploaded = st.file_uploader(
@@ -64,19 +64,31 @@ with st.expander("📂  Carregar base de dados (.xlsx)", expanded=True):
         type=["xlsx","xls"], label_visibility="collapsed"
     )
     st.caption("Os dados ficam apenas na sua sessão e são apagados ao fechar o navegador.")
-
+ 
 # ── LEITURA ──────────────────────────────────
 def carregar(file_bytes):
-    df = pd.read_excel(BytesIO(file_bytes), sheet_name="Base Relatorio Executivo", header=1)
+    buf = BytesIO(file_bytes)
+    # Detecta automaticamente a aba correta (procura por "base" no nome)
+    xl = pd.ExcelFile(buf)
+    abas = xl.sheet_names
+    aba_alvo = None
+    for a in abas:
+        if "base" in a.lower():
+            aba_alvo = a
+            break
+    if aba_alvo is None:
+        aba_alvo = abas[0]  # fallback: usa a primeira aba
+    buf.seek(0)
+    df = pd.read_excel(buf, sheet_name=aba_alvo, header=1)
     df = df.loc[:, ~df.columns.str.startswith('Unnamed')]
-
+ 
     # Normalizar datas
     for c in ['DATA RECEBIMENTO','DATA DE ABERTURA (Inicio Cronograma)',
               'DATA \nLONG LIST (Realizado)','DATA \nSHORT LIST \n(Prevista)',
               'DATA \n SHORT LIST (Realizada)','DATA\nESCOLHA FINALISTA','DATA ADMISSÃO']:
         if c in df.columns:
             df[c] = pd.to_datetime(df[c], errors='coerce')
-
+ 
     # Colunas numéricas do funil
     funil_num = ['TOTAL DE INSCRITOS ','TOTAL DE CANDIDATOS ABORDADOS',
                  'TOTAL DE CANDIDATOS APRESENTADAS EM LONG LIST ',
@@ -92,19 +104,19 @@ def carregar(file_bytes):
     for c in funil_num:
         if c in df.columns:
             df[c] = pd.to_numeric(df[c], errors='coerce')
-
+ 
     # Numéricas de salário
     for c in ['SALÁRIO PREVISTO (Minimo)','SALÁRIO PREVISTO (Maximo)','SALARIO ADMISSÃO',
               'SALÁRIO ATUAL\t','PRETENSÃO SALARIAL  ']:
         if c in df.columns:
             df[c] = pd.to_numeric(df[c], errors='coerce')
-
+ 
     # Derivadas
     df['time_to_fill'] = (df['DATA\nESCOLHA FINALISTA'] - df['DATA DE ABERTURA (Inicio Cronograma)']).dt.days
     df['sla_ok'] = df['DATA \n SHORT LIST (Realizada)'] <= df['DATA \nSHORT LIST \n(Prevista)']
     df['admitido'] = df['DATA ADMISSÃO'].notna()
     df['mes_abertura'] = df['DATA DE ABERTURA (Inicio Cronograma)'].dt.to_period('M').astype(str)
-
+ 
     # Normalizar gênero
     df['genero_norm'] = df['GÊNERO'].str.strip()
     df['genero_norm'] = df['genero_norm'].replace({
@@ -112,18 +124,18 @@ def carregar(file_bytes):
         'Mulher Cisgênero':'Feminino','Mulher cisgênero':'Feminino',
         'Não informado':'Não informado'
     })
-
+ 
     # Normalizar PCD
     df['pcd_norm'] = df['PCD'].str.strip().str.lower()
     df['pcd_norm'] = df['pcd_norm'].map(
         {'sim':'Sim','não':'Não','nao':'Não','sim ':'Sim','não ':'Não'}
     ).fillna('Não informado')
-
+ 
     # Nível normalizado
     df['NÍVEL'] = df['NÍVEL'].str.strip()
-
+ 
     return df
-
+ 
 if uploaded:
     with st.spinner("Carregando base de dados…"):
         df_raw = carregar(uploaded.getvalue())
@@ -131,15 +143,15 @@ if uploaded:
 else:
     st.info("⬆️  Carregue o arquivo Excel para visualizar os dados reais.")
     st.stop()
-
+ 
 # ── ABAS ─────────────────────────────────────
 aba1, aba2, aba3 = st.tabs(["📊  Gerencial", "👩‍💼  Consultoras", "🤝  Visão Cliente"])
-
+ 
 # ══════════════════════════════════════════════
 # ABA 1 — GERENCIAL
 # ══════════════════════════════════════════════
 with aba1:
-
+ 
     # Filtros
     cf1, cf2, cf3, cf4 = st.columns([1,1,1,2])
     with cf1:
@@ -154,16 +166,16 @@ with aba1:
     with cf4:
         consultoras_lista = ["Todas"] + sorted(df_raw['CONSULTOR (A) SELEÇÃO'].dropna().unique().tolist())
         f_cons = st.selectbox("Consultora Seleção", consultoras_lista)
-
+ 
     dg = df_raw.copy()
     if f_emp  != "Todas": dg = dg[dg['EMPRESA']==f_emp]
     if f_niv  != "Todos": dg = dg[dg['NÍVEL']==f_niv]
     if f_mes  != "Todos": dg = dg[dg['mes_abertura']==f_mes]
     if f_cons != "Todas": dg = dg[dg['CONSULTOR (A) SELEÇÃO']==f_cons]
-
+ 
     # Vagas únicas (para KPIs de processo)
     dg_vaga = dg.drop_duplicates(subset='COD.VAGA SUPERHAR', keep='first')
-
+ 
     total_vagas   = dg_vaga['COD.VAGA SUPERHAR'].nunique()
     concluidas    = dg_vaga['Status Samarco'].isin(['Concluído','Concluído C/Interno','Admissão']).sum()
     em_andamento  = total_vagas - concluidas
@@ -172,7 +184,7 @@ with aba1:
     admitidos     = int(dg['admitido'].sum())
     pcd_sim       = int((dg['pcd_norm']=='Sim').sum())
     sla_pct       = round(dg_vaga['sla_ok'].mean()*100) if dg_vaga['sla_ok'].notna().any() else 0
-
+ 
     # KPIs
     k1,k2,k3,k4,k5,k6 = st.columns(6)
     k1.metric("Total de Vagas",     total_vagas)
@@ -181,12 +193,12 @@ with aba1:
     k4.metric("Taxa de Conclusão",  f"{tx_concl}%")
     k5.metric("Mediana Time to Fill", f"{ttf_med} dias")
     k6.metric("Admitidos",          admitidos)
-
+ 
     st.markdown("---")
-
+ 
     # LINHA 2 — Clientes | Funil | Origem
     c1,c2,c3 = st.columns(3)
-
+ 
     with c1:
         st.markdown("**Vagas por empresa / cliente**")
         vc = dg_vaga['EMPRESA'].value_counts().reset_index()
@@ -197,7 +209,7 @@ with aba1:
                           legend=dict(font_size=10, orientation='v'))
         fig.update_traces(textinfo='percent+value', textfont_size=10)
         st.plotly_chart(fig, use_container_width=True)
-
+ 
     with c2:
         st.markdown("**Funil de recrutamento — totais**")
         ins  = int(dg_vaga['TOTAL DE INSCRITOS '].sum())
@@ -215,7 +227,7 @@ with aba1:
         ))
         fig_f.update_layout(margin=dict(t=0,b=0,l=0,r=80), height=230, font=dict(size=10))
         st.plotly_chart(fig_f, use_container_width=True)
-
+ 
     with c3:
         st.markdown("**Origem do recrutamento (candidatos)**")
         ori = dg['ORIGEM  RECRUTAMENTO'].value_counts().reset_index()
@@ -225,12 +237,12 @@ with aba1:
         fig.update_layout(margin=dict(t=0,b=0,l=0,r=0), height=230,
                           xaxis_title='', yaxis_title='', font=dict(size=10))
         st.plotly_chart(fig, use_container_width=True)
-
+ 
     st.markdown("---")
-
+ 
     # LINHA 3 — Mensal | Diversidade | Mini-indicadores
     c4,c5,c6 = st.columns([1.4,1,0.6])
-
+ 
     with c4:
         st.markdown("**Vagas abertas por mês**")
         dg_vaga2 = df_raw.drop_duplicates(subset='COD.VAGA SUPERHAR', keep='first').copy()
@@ -241,7 +253,7 @@ with aba1:
                           xaxis_title='', yaxis_title='', font=dict(size=10))
         fig.update_traces(marker_line_width=0)
         st.plotly_chart(fig, use_container_width=True)
-
+ 
     with c5:
         st.markdown("**Diversidade dos candidatos**")
         cg1, cg2 = st.columns(2)
@@ -269,7 +281,7 @@ with aba1:
                 st.plotly_chart(fig_p, use_container_width=True)
             else:
                 st.caption("Sem dados de PcD")
-
+ 
     with c6:
         st.markdown("**Indicadores**")
         ttf_max = int(dg_vaga['time_to_fill'].max()) if dg_vaga['time_to_fill'].notna().any() else 0
@@ -290,7 +302,7 @@ with aba1:
                 <div style="width:{barpct}%;height:100%;background:{cor};border-radius:3px"></div>
               </div>
             </div>""", unsafe_allow_html=True)
-
+ 
     # Tabela síntese por empresa
     st.markdown("---")
     st.markdown("**Síntese por empresa**")
@@ -307,13 +319,13 @@ with aba1:
     sint = sint.rename(columns={'EMPRESA':'Empresa','TTF_Mediana':'Mediana TTF (dias)'})
     st.dataframe(sint[['Empresa','Vagas','Concluídas','Conclusão %','Inscritos','Short_List','Mediana TTF (dias)']],
                  use_container_width=True, hide_index=True)
-
-
+ 
+ 
 # ══════════════════════════════════════════════
 # ABA 2 — CONSULTORAS
 # ══════════════════════════════════════════════
 with aba2:
-
+ 
     cf1, cf2, _ = st.columns([1,1,2])
     with cf1:
         emp2 = ["Todas"] + sorted(df_raw['EMPRESA'].dropna().unique().tolist())
@@ -321,13 +333,13 @@ with aba2:
     with cf2:
         niv2 = ["Todos"] + sorted(df_raw['NÍVEL'].dropna().unique().tolist())
         f_niv2 = st.selectbox("Nível", niv2, key="cons_niv")
-
+ 
     dc = df_raw.copy()
     if f_emp2 != "Todas": dc = dc[dc['EMPRESA']==f_emp2]
     if f_niv2 != "Todos": dc = dc[dc['NÍVEL']==f_niv2]
-
+ 
     dc_vaga = dc.drop_duplicates(subset='COD.VAGA SUPERHAR', keep='first')
-
+ 
     grp = dc_vaga.groupby('CONSULTOR (A) SELEÇÃO').agg(
         Vagas       = ('COD.VAGA SUPERHAR','count'),
         Concluídas  = ('Status Samarco', lambda x: x.isin(['Concluído','Concluído C/Interno','Admissão']).sum()),
@@ -342,7 +354,7 @@ with aba2:
     grp['SLA %']       = (grp['SLA_ok']*100).round(0).fillna(0).astype(int)
     grp['Conv %']      = np.where(grp['Inscritos']>0,
                                   (grp['Short_List']/grp['Inscritos']*100).round(1), 0)
-
+ 
     # KPIs destaques
     if len(grp) > 0:
         k1,k2,k3,k4 = st.columns(4)
@@ -359,9 +371,9 @@ with aba2:
         k4.metric("Melhor SLA",
                   grp.loc[grp['SLA %'].idxmax(),'CONSULTOR (A) SELEÇÃO'].split()[0],
                   f"SLA {grp['SLA %'].max()}%")
-
+ 
     st.markdown("---")
-
+ 
     # Tabela comparativa
     st.markdown("**Desempenho por consultora**")
     tabela = grp.rename(columns={
@@ -375,12 +387,12 @@ with aba2:
                 'SLA %','Inscritos','Short List','Entrevistas Gestor']],
         use_container_width=True, hide_index=True
     )
-
+ 
     st.markdown("---")
-
+ 
     c1,c2,c3 = st.columns(3)
     nomes_c = grp['CONSULTOR (A) SELEÇÃO'].apply(lambda x: ' '.join(x.split()[:2]))
-
+ 
     with c1:
         st.markdown("**Vagas por consultora**")
         fig = px.bar(x=grp['Vagas'], y=nomes_c, orientation='h',
@@ -388,7 +400,7 @@ with aba2:
         fig.update_layout(height=240, margin=dict(t=0,b=0,l=0,r=0),
                           xaxis_title='', yaxis_title='', font=dict(size=10))
         st.plotly_chart(fig, use_container_width=True)
-
+ 
     with c2:
         st.markdown("**Vagas concluídas por consultora**")
         fig = px.bar(x=grp['Concluídas'], y=nomes_c, orientation='h',
@@ -396,7 +408,7 @@ with aba2:
         fig.update_layout(height=240, margin=dict(t=0,b=0,l=0,r=0),
                           xaxis_title='', yaxis_title='', font=dict(size=10))
         st.plotly_chart(fig, use_container_width=True)
-
+ 
     with c3:
         st.markdown("**Mediana TTF por consultora (dias)**")
         grp_ttf = grp[grp['TTF_med']>0]
@@ -406,7 +418,7 @@ with aba2:
         fig.update_layout(height=240, margin=dict(t=0,b=0,l=0,r=0),
                           xaxis_title='dias', yaxis_title='', font=dict(size=10))
         st.plotly_chart(fig, use_container_width=True)
-
+ 
     # Funil por consultora
     st.markdown("---")
     st.markdown("**Funil detalhado por consultora**")
@@ -419,26 +431,26 @@ with aba2:
     ).reset_index()
     funil_cons.columns = ['Consultora','Inscritos','Abordados','Long List','Short List','Entrevistas Gestor']
     st.dataframe(funil_cons, use_container_width=True, hide_index=True)
-
-
+ 
+ 
 # ══════════════════════════════════════════════
 # ABA 3 — VISÃO CLIENTE
 # ══════════════════════════════════════════════
 with aba3:
-
+ 
     # Seletor de vaga
     vagas_lista = df_raw.drop_duplicates(subset='COD.VAGA SUPERHAR', keep='first')
     vagas_lista = vagas_lista[vagas_lista['EMPRESA'].notna() & vagas_lista['CARGO'].notna()]
     vagas_lista['label'] = vagas_lista['CARGO'].str.strip() + " — " + vagas_lista['EMPRESA'].str.strip()
-
+ 
     sel_label = st.selectbox("Selecione o processo:", vagas_lista['label'].tolist())
     vaga_row = vagas_lista[vagas_lista['label']==sel_label].iloc[0]
-
+ 
     # Candidatos desta vaga
     cand_vaga = df_raw[df_raw['COD.VAGA SUPERHAR']==vaga_row['COD.VAGA SUPERHAR']]
-
+ 
     st.markdown("---")
-
+ 
     # KPIs da vaga
     status_v   = str(vaga_row.get('Status Samarco','—'))
     cons_v     = str(vaga_row.get('CONSULTOR (A) SELEÇÃO','—'))
@@ -446,19 +458,19 @@ with aba3:
     sl_v       = int(vaga_row['TOTAL DE CANDIDATOS SHORT LIST ']) if pd.notna(vaga_row.get('TOTAL DE CANDIDATOS SHORT LIST ')) else 0
     eg_v       = int(vaga_row['TOTAL CANDIDATOS EM ENTREVISTA C/GESTOR']) if pd.notna(vaga_row.get('TOTAL CANDIDATOS EM ENTREVISTA C/GESTOR')) else 0
     adm_v      = int(cand_vaga['admitido'].sum())
-
+ 
     k1,k2,k3,k4,k5 = st.columns(5)
     k1.metric("Status", status_v)
     k2.metric("Inscritos", inscritos)
     k3.metric("Short List", sl_v)
     k4.metric("Entrev. Gestor", eg_v)
     k5.metric("Admitido(s)", adm_v)
-
+ 
     st.markdown("---")
-
+ 
     # Timeline + Funil
     c1, c2 = st.columns(2)
-
+ 
     with c1:
         st.markdown("**Linha do tempo do processo**")
         etapas_tl = [
@@ -489,7 +501,7 @@ with aba3:
             </div>{line}'''
         html_tl += '</div>'
         st.markdown(html_tl, unsafe_allow_html=True)
-
+ 
     with c2:
         st.markdown("**Funil desta vaga**")
         ll_v = int(vaga_row['TOTAL DE CANDIDATOS APRESENTADAS EM LONG LIST ']) if pd.notna(vaga_row.get('TOTAL DE CANDIDATOS APRESENTADAS EM LONG LIST ')) else 0
@@ -501,40 +513,53 @@ with aba3:
         ))
         fig_f.update_layout(margin=dict(t=0,b=0,l=0,r=80), height=200, font=dict(size=11))
         st.plotly_chart(fig_f, use_container_width=True)
-
+ 
     st.markdown("---")
-
+ 
     # Benchmarking salarial + Diversidade
     c3,c4,c5 = st.columns(3)
-
+ 
     with c3:
         st.markdown("**Benchmarking salarial**")
         sal_prev_min = vaga_row.get('SALÁRIO PREVISTO (Minimo)')
         sal_prev_max = vaga_row.get('SALÁRIO PREVISTO (Maximo)')
         sal_adm      = cand_vaga['SALARIO ADMISSÃO'].dropna().mean() if cand_vaga['SALARIO ADMISSÃO'].notna().any() else None
         sal_pret     = cand_vaga['PRETENSÃO SALARIAL  '].dropna().mean() if cand_vaga['PRETENSÃO SALARIAL  '].notna().any() else None
-
+ 
         labels_sal, vals_sal, cors_sal = [], [], []
-        if pd.notna(sal_prev_min):
-            labels_sal.append('Previsto (mín)'); vals_sal.append(sal_prev_min); cors_sal.append(AZUL+'55')
-        if pd.notna(sal_prev_max):
-            labels_sal.append('Previsto (máx)'); vals_sal.append(sal_prev_max); cors_sal.append(AZUL2)
-        if sal_pret:
-            labels_sal.append('Pretensão média'); vals_sal.append(sal_pret); cors_sal.append(AMBER)
-        if sal_adm:
-            labels_sal.append('Admissão média'); vals_sal.append(sal_adm); cors_sal.append(VERDE)
-
+        try:
+            if pd.notna(sal_prev_min) and float(sal_prev_min) > 0:
+                labels_sal.append('Previsto (min)')
+                vals_sal.append(float(sal_prev_min))
+                cors_sal.append('#B5D4F4')
+            if pd.notna(sal_prev_max) and float(sal_prev_max) > 0:
+                labels_sal.append('Previsto (max)')
+                vals_sal.append(float(sal_prev_max))
+                cors_sal.append('#378ADD')
+            if sal_pret and float(sal_pret) > 0:
+                labels_sal.append('Pretensao media')
+                vals_sal.append(float(sal_pret))
+                cors_sal.append('#BA7517')
+            if sal_adm and float(sal_adm) > 0:
+                labels_sal.append('Admissao media')
+                vals_sal.append(float(sal_adm))
+                cors_sal.append('#1D9E75')
+        except Exception:
+            pass
+ 
         if vals_sal:
-            txt_sal = [f"R$ {v:,.0f}".replace(',','.') for v in vals_sal]
-            fig_s = go.Figure(go.Bar(x=labels_sal, y=vals_sal,
-                                     marker_color=cors_sal,
-                                     text=txt_sal, textposition='outside'))
+            txt_sal = ['R$ {:,.0f}'.format(v).replace(',','.') for v in vals_sal]
+            fig_s = go.Figure(go.Bar(
+                x=labels_sal, y=vals_sal,
+                marker=dict(color=cors_sal),
+                text=txt_sal, textposition='outside'
+            ))
             fig_s.update_layout(margin=dict(t=20,b=0,l=0,r=0), height=200,
                                  yaxis=dict(showticklabels=False), font=dict(size=10))
             st.plotly_chart(fig_s, use_container_width=True)
         else:
             st.caption("Sem dados salariais para esta vaga.")
-
+ 
     with c4:
         st.markdown("**Gênero dos candidatos**")
         gen_v = cand_vaga[cand_vaga['genero_norm']!='Não informado']['genero_norm'].value_counts().reset_index()
@@ -548,7 +573,7 @@ with aba3:
             st.plotly_chart(fig_g, use_container_width=True)
         else:
             st.caption("Dados de gênero não informados nesta vaga.")
-
+ 
     with c5:
         st.markdown("**PcD dos candidatos**")
         pcd_v = cand_vaga[cand_vaga['pcd_norm']!='Não informado']['pcd_norm'].value_counts().reset_index()
@@ -562,9 +587,9 @@ with aba3:
             st.plotly_chart(fig_p, use_container_width=True)
         else:
             st.caption("Dados de PcD não informados nesta vaga.")
-
+ 
     st.markdown("---")
-
+ 
     # Candidatos desta vaga
     st.markdown("**Candidatos deste processo**")
     cols_cand = ['NOME CANDIDATO','GÊNERO','RAÇA','PCD','ORIGEM  RECRUTAMENTO',
@@ -576,7 +601,7 @@ with aba3:
     if 'DATA ADMISSÃO' in df_cand_show.columns:
         df_cand_show['DATA ADMISSÃO'] = pd.to_datetime(df_cand_show['DATA ADMISSÃO'], errors='coerce').dt.strftime('%d/%m/%Y')
     st.dataframe(df_cand_show, use_container_width=True, hide_index=True)
-
+ 
 # ── FOOTER ───────────────────────────────────
 st.markdown("---")
 st.markdown(f"""
