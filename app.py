@@ -619,7 +619,7 @@ with aba3:
 
     # Candidatos desta vaga
     st.markdown("**Candidatos deste processo**")
-    cols_cand = ['NOME CANDIDATO','GÊNERO','RAÇA','PCD','ORIGEM RECRUTAMENTO',   
+    cols_cand = ['NOME CANDIDATO','GÊNERO','RAÇA','PCD','ORIGEM RECRUTAMENTO',
                  'ULTIMA EMPRESA / ATUAL','SALÁRIO ATUAL','PRETENSAO SALARIAL',
                  'SALARIO ADMISSÃO','DATA ADMISSÃO','INTERNO OU EXTERNO']
     cols_ex = [c for c in cols_cand if c in cand_vaga.columns]
@@ -632,7 +632,7 @@ with aba3:
 # ── FOOTER ───────────────────────────────────
 st.markdown("---")
 st.markdown(f"""
-<div style="text-align:center;font-size:11px;color:#6B7280;padding:6px"> 
+<div style="text-align:center;font-size:11px;color:#6B7280;padding:6px">
   Superhar Recursos Humanos &nbsp;|&nbsp; superhar.com.br &nbsp;|&nbsp;
   (31) 3017-6729 &nbsp;|&nbsp; Relatório gerado em {date.today().strftime('%d/%m/%Y')}
 </div>
