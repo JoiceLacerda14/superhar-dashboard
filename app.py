@@ -68,98 +68,115 @@ with st.expander("📂  Carregar base de dados (.xlsx)", expanded=True):
 # ── LEITURA ──────────────────────────────────
 def carregar(file_bytes):
     buf = BytesIO(file_bytes)
-    # Detecta automaticamente a aba correta (procura por "base" no nome)
+    # Detecta aba automaticamente
     xl = pd.ExcelFile(buf)
     abas = xl.sheet_names
-    aba_alvo = None
-    for a in abas:
-        if "base" in a.lower():
-            aba_alvo = a
-            break
-    if aba_alvo is None:
-        aba_alvo = abas[0]  # fallback: usa a primeira aba
+    aba_alvo = next((a for a in abas if "base" in a.lower()), abas[0])
     buf.seek(0)
     df = pd.read_excel(buf, sheet_name=aba_alvo, header=1)
     df = df.loc[:, ~df.columns.str.startswith('Unnamed')]
 
-    # Renomear colunas para nomes padronizados (mapeamento direto)
-    rename_map = {
-        # PCD
-        '(PCD)\n'                                        : 'PCD',
-        # Datas
-        'DATA ESCOLHA FINALISTA'                        : 'DATA ESCOLHA FINALISTA',
-        'DATA LONG LIST REALIZADO'                   : 'DATA LONG LIST REALIZADO',
-        'DATA \nLONG LIST (Prevista)'                    : 'DATA LONG LIST PREVISTA',
-        'DATA SHORT LIST PREVISTA'                : 'DATA SHORT LIST PREVISTA',
-        'DATA SHORT LIST REALIZADA'                 : 'DATA SHORT LIST REALIZADA',
-        # Funil
-        'TOTAL INSCRITOS'                             : 'TOTAL INSCRITOS',
-        'TOTAL ABORDADOS'                   : 'TOTAL ABORDADOS',
-        'TOTAL LONG LIST'  : 'TOTAL LONG LIST',
-        'TOTAL APROVADOS LONG'           : 'TOTAL APROVADOS LONG',
-        'TOTAL SELECAO SUPERHAR'            : 'TOTAL SELECAO SUPERHAR',
-        'TOTAL SHORT LIST'                 : 'TOTAL SHORT LIST',
-        'TOTAL ENTREVISTA GESTOR'         : 'TOTAL ENTREVISTA GESTOR',
-        'TOTAL REPROVADOS MEDICINA'      : 'TOTAL REPROVADOS MEDICINA',
-        # Salários
-        'SALARIO ATUAL'                                : 'SALARIO ATUAL',
-        'PRETENSAO SALARIAL'                            : 'PRETENSAO SALARIAL',
-        # Origem
-        'ORIGEM RECRUTAMENTO'                            : 'ORIGEM RECRUTAMENTO',
-    }
-    df = df.rename(columns=rename_map)
-    # Limpar espaços nos nomes que sobraram (sem remover \n do meio)
-    df.columns = [str(c).strip() for c in df.columns]
+    # ── RENOMEAR: mapeamento dos nomes ORIGINAIS do Excel → nomes padronizados
+    # (os nomes originais têm \n, tabs e espaços extras)
+    rename_map = {}
+    for c in df.columns:
+        cs = str(c)  # nome original com todos os caracteres especiais
+        cu = cs.upper().replace('\n',' ').replace('\t',' ')
+        cu = ' '.join(cu.split())  # colapsa espaços múltiplos
 
-    # Normalizar datas
+        if cu == '(PCD)':                                         rename_map[c] = 'PCD'
+        elif cu == 'DATA ESCOLHA FINALISTA':                      rename_map[c] = 'DATA ESCOLHA FINALISTA'
+        elif cu == 'DATA LONG LIST (REALIZADO)':                  rename_map[c] = 'DATA LONG LIST REALIZADO'
+        elif cu == 'DATA LONG LIST (PREVISTA)':                   rename_map[c] = 'DATA LONG LIST PREVISTA'
+        elif cu == 'DATA SHORT LIST (PREVISTA)':                  rename_map[c] = 'DATA SHORT LIST PREVISTA'
+        elif cu == 'DATA SHORT LIST (REALIZADA)':                 rename_map[c] = 'DATA SHORT LIST REALIZADA'
+        elif cu == 'NOVA DATA LONG LIST (PREVISTA)':              rename_map[c] = 'NOVA DATA LONG LIST PREVISTA'
+        elif cu == 'NOVA DATA LONG LIST (REALIZADO)':             rename_map[c] = 'NOVA DATA LONG LIST REALIZADO'
+        elif cu == 'NOVA DATA SHORT LIST (PREVISTA)':             rename_map[c] = 'NOVA DATA SHORT LIST PREVISTA'
+        elif cu == 'NOVA DATA SHORT LIST (REALIZADA)':            rename_map[c] = 'NOVA DATA SHORT LIST REALIZADA'
+        elif cu == 'TOTAL DE INSCRITOS':                          rename_map[c] = 'TOTAL INSCRITOS'
+        elif cu == 'TOTAL DE CANDIDATOS ABORDADOS':               rename_map[c] = 'TOTAL ABORDADOS'
+        elif cu == 'TOTAL DE CANDIDATOS APRESENTADAS EM LONG LIST': rename_map[c] = 'TOTAL LONG LIST'
+        elif cu == 'TOTAL DE CANDIDATOS APROVADOS EM LONG':       rename_map[c] = 'TOTAL APROVADOS LONG'
+        elif cu == 'TOTAL CANDIDATOS EM SELECAO SUPERHAR' or 'SELEÇÃO SUPERHAR' in cu: rename_map[c] = 'TOTAL SELECAO SUPERHAR'
+        elif cu == 'TOTAL DE CANDIDATOS SHORT LIST':              rename_map[c] = 'TOTAL SHORT LIST'
+        elif cu == 'TOTAL CANDIDATOS EM ENTREVISTA C/GESTOR':     rename_map[c] = 'TOTAL ENTREVISTA GESTOR'
+        elif cu == 'TOTAL DE CANDIDATOS REPROVADOS EM MEDICINA':  rename_map[c] = 'TOTAL REPROVADOS MEDICINA'
+        elif 'SALARIO ATUAL' in cu or 'SALÁRIO ATUAL' in cu:     rename_map[c] = 'SALARIO ATUAL'
+        elif 'PRETENSAO SALARIAL' in cu or 'PRETENSÃO SALARIAL' in cu: rename_map[c] = 'PRETENSAO SALARIAL'
+        elif 'ORIGEM' in cu and 'RECRUTAMENTO' in cu:            rename_map[c] = 'ORIGEM RECRUTAMENTO'
+
+    df = df.rename(columns=rename_map)
+    # Limpar espaços nas bordas dos nomes restantes
+    df.columns = [str(c).strip() for c in df.columns]
+    # Remover colunas duplicadas: manter a primeira ocorrência
+    df = df.loc[:, ~df.columns.duplicated(keep='first')]
+
+    # ── DATAS
     for c in ['DATA RECEBIMENTO','DATA DE ABERTURA (Inicio Cronograma)',
               'DATA LONG LIST REALIZADO','DATA SHORT LIST PREVISTA',
-              'DATA SHORT LIST REALIZADA','DATA ESCOLHA FINALISTA','DATA ADMISSÃO']:
+              'DATA SHORT LIST REALIZADA','DATA ESCOLHA FINALISTA','DATA ADMISSÃO',
+              'DATA ALINHAMENTO']:
         if c in df.columns:
             df[c] = pd.to_datetime(df[c], errors='coerce')
 
-    # Colunas numéricas do funil
-    funil_num = ['TOTAL INSCRITOS','TOTAL ABORDADOS',
-                 'TOTAL LONG LIST',
-                 'TOTAL APROVADOS LONG',
-                 'TOTAL SELECAO SUPERHAR',
-                 'TOTAL SHORT LIST',
-                 'TOTAL ENTREVISTA GESTOR',
-                 'TOTAL REPROVADOS MEDICINA',
-                 'QUANTITATIVO MULHERES','QUANTITATIVO MULHERES    ',
-                 'QUANTITATIVO MULHERES ','QUANTITATIVO MULHERES  ',
-                 'QUANTITATIVO MULHERES     ','QUANTITATIVO MULHERES      ',
-                 'QUANTITATIVO MULHERES       ']
-    for c in funil_num:
+    # ── NUMÉRICOS — funil
+    for c in ['TOTAL INSCRITOS','TOTAL ABORDADOS','TOTAL LONG LIST',
+              'TOTAL APROVADOS LONG','TOTAL SELECAO SUPERHAR',
+              'TOTAL SHORT LIST','TOTAL ENTREVISTA GESTOR','TOTAL REPROVADOS MEDICINA']:
         if c in df.columns:
             df[c] = pd.to_numeric(df[c], errors='coerce')
 
-    # Numéricas de salário
-    for c in ['SALÁRIO PREVISTO (Minimo)','SALÁRIO PREVISTO (Maximo)','SALARIO ADMISSÃO',
-              'SALÁRIO ATUAL','PRETENSAO SALARIAL']:
+    # ── NUMÉRICOS — salário
+    for c in ['SALÁRIO PREVISTO (Minimo)','SALÁRIO PREVISTO (Maximo)',
+              'SALARIO ADMISSÃO','SALARIO ATUAL','PRETENSAO SALARIAL']:
         if c in df.columns:
             df[c] = pd.to_numeric(df[c], errors='coerce')
 
-    # Derivadas
-    df['time_to_fill'] = (df['DATA ESCOLHA FINALISTA'] - df['DATA DE ABERTURA (Inicio Cronograma)']).dt.days
-    df['sla_ok'] = df['DATA SHORT LIST REALIZADA'] <= df['DATA SHORT LIST PREVISTA']
-    df['admitido'] = df['DATA ADMISSÃO'].notna()
-    df['mes_abertura'] = df['DATA DE ABERTURA (Inicio Cronograma)'].dt.to_period('M').astype(str)
+    # ── DERIVADAS (com .get para não quebrar se coluna ausente)
+    col_fin = 'DATA ESCOLHA FINALISTA'
+    col_ab  = 'DATA DE ABERTURA (Inicio Cronograma)'
+    if col_fin in df.columns and col_ab in df.columns:
+        df['time_to_fill'] = (df[col_fin] - df[col_ab]).dt.days
+    else:
+        df['time_to_fill'] = pd.NA
 
-    # Normalizar gênero
-    df['genero_norm'] = df.get('GÊNERO', pd.Series(dtype=str)).str.strip()
-    df['genero_norm'] = df['genero_norm'].replace({
-        'Homem cisgênero':'Masculino','Homem Cisgênero':'Masculino',
-        'Mulher Cisgênero':'Feminino','Mulher cisgênero':'Feminino',
-        'Não informado':'Não informado'
-    })
+    col_sl_r = 'DATA SHORT LIST REALIZADA'
+    col_sl_p = 'DATA SHORT LIST PREVISTA'
+    if col_sl_r in df.columns and col_sl_p in df.columns:
+        df['sla_ok'] = df[col_sl_r] <= df[col_sl_p]
+    else:
+        df['sla_ok'] = False
 
-    # Normalizar PCD
-    df['pcd_norm'] = df.get('PCD', df.get('(PCD)\n', pd.Series(dtype=str))).str.strip().str.lower()
-    df['pcd_norm'] = df['pcd_norm'].map({'sim':'Sim','nao':'Nao','sim ':'Sim'}).fillna('Nao informado')
+    df['admitido'] = df['DATA ADMISSÃO'].notna() if 'DATA ADMISSÃO' in df.columns else False
 
-    # Nível normalizado
-    df['NÍVEL'] = df['NÍVEL'].str.strip()
+    if col_ab in df.columns:
+        df['mes_abertura'] = df[col_ab].dt.to_period('M').astype(str)
+    else:
+        df['mes_abertura'] = 'Desconhecido'
+
+    # ── GÊNERO normalizado
+    if 'GÊNERO' in df.columns:
+        df['genero_norm'] = df['GÊNERO'].astype(str).str.strip().replace({
+            'Homem cisgênero':'Masculino','Homem Cisgênero':'Masculino',
+            'Mulher Cisgênero':'Feminino','Mulher cisgênero':'Feminino',
+            'nan':'Não informado','':'Não informado'
+        })
+    else:
+        df['genero_norm'] = 'Não informado'
+
+    # ── PCD normalizado
+    pcd_col = 'PCD' if 'PCD' in df.columns else None
+    if pcd_col:
+        df['pcd_norm'] = df[pcd_col].astype(str).str.strip().str.lower().map(
+            {'sim':'Sim','não':'Não','nao':'Não','nan':'Não informado'}
+        ).fillna('Não informado')
+    else:
+        df['pcd_norm'] = 'Não informado'
+
+    # ── NÍVEL normalizado
+    if 'NÍVEL' in df.columns:
+        df['NÍVEL'] = df['NÍVEL'].astype(str).str.strip()
 
     return df
 
