@@ -178,6 +178,11 @@ def carregar(file_bytes):
     if 'NÍVEL' in df.columns:
         df['NÍVEL'] = df['NÍVEL'].astype(str).str.strip()
 
+    # Garantir coluna Status Samarco sem espaços
+    status_candidates = [c for c in df.columns if 'status' in str(c).lower()]
+    if status_candidates and 'Status Samarco' not in df.columns:
+        df = df.rename(columns={status_candidates[0]: 'Status Samarco'})
+
     return df
 
 if uploaded:
@@ -221,7 +226,8 @@ with aba1:
     dg_vaga = dg.drop_duplicates(subset='COD.VAGA SUPERHAR', keep='first')
 
     total_vagas   = dg_vaga['COD.VAGA SUPERHAR'].nunique()
-    concluidas    = dg_vaga['Status Samarco'].isin(['Concluído','Concluído C/Interno','Admissão']).sum()
+    STATUS_COL = 'Status Samarco' if 'Status Samarco' in dg_vaga.columns else ([c for c in dg_vaga.columns if 'status' in c.lower()] + ['_missing'])[0]
+    concluidas    = dg_vaga[STATUS_COL].isin(['Concluído','Concluído C/Interno','Admissão']).sum() if STATUS_COL in dg_vaga.columns else 0
     em_andamento  = total_vagas - concluidas
     tx_concl      = round(concluidas / total_vagas * 100) if total_vagas > 0 else 0
     ttf_med       = int(dg_vaga['time_to_fill'].median()) if dg_vaga['time_to_fill'].notna().any() else 0
@@ -353,7 +359,7 @@ with aba1:
     dg_vg = dg.drop_duplicates(subset='COD.VAGA SUPERHAR', keep='first')
     sint = dg_vg.groupby('EMPRESA').agg(
         Vagas         = ('COD.VAGA SUPERHAR','count'),
-        Concluídas    = ('Status Samarco', lambda x: x.isin(['Concluído','Concluído C/Interno','Admissão']).sum()),
+        Concluídas    = ('Status Samarco', lambda x: x.isin(['Concluído','Concluído C/Interno','Admissão']).sum()) if 'Status Samarco' in dg_vg.columns else ('COD.VAGA SUPERHAR', lambda x: 0),
         Inscritos     = ('TOTAL INSCRITOS','sum'),
         Short_List    = ('TOTAL SHORT LIST','sum'),
         TTF_Mediana   = ('time_to_fill','median'),
@@ -386,7 +392,7 @@ with aba2:
 
     grp = dc_vaga.groupby('CONSULTOR (A) SELEÇÃO').agg(
         Vagas       = ('COD.VAGA SUPERHAR','count'),
-        Concluídas  = ('Status Samarco', lambda x: x.isin(['Concluído','Concluído C/Interno','Admissão']).sum()),
+        Concluídas  = ('Status Samarco', lambda x: x.isin(['Concluído','Concluído C/Interno','Admissão']).sum()) if 'Status Samarco' in dc_vaga.columns else ('COD.VAGA SUPERHAR', lambda x: 0),
         TTF_med     = ('time_to_fill','median'),
         SLA_ok      = ('sla_ok','mean'),
         Inscritos   = ('TOTAL INSCRITOS','sum'),
@@ -496,7 +502,8 @@ with aba3:
     st.markdown("---")
 
     # KPIs da vaga
-    status_v   = str(vaga_row.get('Status Samarco','—'))
+    status_col_vc = 'Status Samarco' if 'Status Samarco' in vaga_row.index else ([c for c in vaga_row.index if 'status' in str(c).lower()] + ['_missing'])[0]
+    status_v   = str(vaga_row.get(status_col_vc,'—')) if status_col_vc != '_missing' else '—'
     cons_v     = str(vaga_row.get('CONSULTOR (A) SELEÇÃO','—'))
     inscritos  = int(vaga_row['TOTAL INSCRITOS']) if pd.notna(vaga_row.get('TOTAL INSCRITOS')) else 0
     sl_v       = int(vaga_row['TOTAL SHORT LIST']) if pd.notna(vaga_row.get('TOTAL SHORT LIST')) else 0
