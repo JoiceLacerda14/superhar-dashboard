@@ -561,8 +561,13 @@ with aba3:
  
     with col_dias:
         st.markdown("**Tempo em dias**")
-        d_aber_sl  = int(vaga_row.get('days_abertura_sl', 0) or 0)
-        d_sl_cont  = int(vaga_row.get('days_sl_contrat', 0) or 0)
+        def safe_days(row, col):
+            try:
+                v = row[col] if col in row.index else None
+                return int(v) if v is not None and str(v) not in ('nan','<NA>','NaT','None') else 0
+            except: return 0
+        d_aber_sl = safe_days(vaga_row, 'days_abertura_sl')
+        d_sl_cont = safe_days(vaga_row, 'days_sl_contrat')
  
         for label, val, cor in [
             ("Alinhamento → Short List", f"{d_aber_sl} dias", AZUL),
